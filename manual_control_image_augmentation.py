@@ -1039,13 +1039,13 @@ def main():
     )
     argparser.add_argument(
         '-ve', '--vehicles', 
-        default=10, 
+        default=30, 
         type=int, 
         help="number of vehicles to spawn in the simulation"
     )
     argparser.add_argument(
         '-wa', '--walkers', 
-        default=10, 
+        default=30, 
         type=int, 
         help="number of walkers to spawn in the simulation"
     )
@@ -1066,6 +1066,11 @@ def main():
 
     assert args.style in ["aggressive", "cautious"], "Unknown driving style, \"{}\"".format(args.style)
 
+    if args.save_name is None:
+        args.save_name = args.style
+    else:
+        args.save_name = "{}_{}".format(args.style, args.save_name)
+        
     args.width, args.height = [int(x) for x in args.res.split('x')]
 
     log_level = logging.DEBUG if args.debug else logging.INFO

@@ -10,14 +10,13 @@ class HDF5Saver:
         self.sensor_width = sensor_width
         self.sensor_height = sensor_height
 
-        if file_path_to_save is None:
-            save_dir = "./_out/"
+        save_dir = "./_out"
 
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)            
 
-            current_date_time = datetime.now()
-            file_path_to_save = save_dir+str(current_date_time)+".hdf5"
+        current_date_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        file_path_to_save = "{}/{}_{}.hdf5".format(save_dir, file_path_to_save, str(current_date_time))
 
         self.file = h5py.File(file_path_to_save, "w")
         self.mid_image_dataset = self.file.create_dataset("CameraMiddle", shape=(10, sensor_height, sensor_width, 3), maxshape=(None, sensor_height, sensor_width, 3), dtype='i2')
