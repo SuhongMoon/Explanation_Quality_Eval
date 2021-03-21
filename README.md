@@ -1,5 +1,5 @@
 # Data Collection for Evaluating Explanation Quality
-This repository is to collect data for evaluating explanation quality in CARLA 0.9.9. 
+This repository is to collect data for evaluating explanation quality in CARLA 0.9.10. 
 ## Installation
 ### Install Dependencies
 Before setting up CARLA, clone this repository and install the dependencies with the following command:
@@ -11,7 +11,7 @@ conda activate carla
 pip install -r requirements.txt
 ```
 ### Install CARLA
-You can find CARLA 0.9.9 in this [link](https://github.com/carla-simulator/carla/releases/tag/0.9.9). Please following these steps to install CARLA simulator.
+You can find CARLA 0.9.10 in this [link](https://github.com/carla-simulator/carla/releases/tag/0.9.10). Please following these steps to install CARLA simulator.
 1. Make directory you want to install CARLA. Here, we use ~/carla.
 2. Download and unzip CARLA_0.9.10.tar.gz into ~/carla you want to unizp.
 3. Download AdditionalMaps_0.9.10.tar.gz but do not unzip this file but place this file in ~/carla/Import.
@@ -38,6 +38,9 @@ You can find CARLA 0.9.9 in this [link](https://github.com/carla-simulator/carla
     ```
     ./manual_control_image_augmentation.py --style cautious
     ```
+    Then you can find the simulator like below image.
+    [alt text](http://https://github.com/SuhongMoon/Explanation_Quality_Eval/assets/carla_simulator.png)
 4. If you press R after running manual controller, it starts to record your play. 
 5. When you playing with this controller, please explain your behavior by yourself by pressing P. If you press P while running the simulator, the popup window that you can input your explanation and action appears and the simulator pauses until you submit your explanation.
+[alt text](http://https://github.com/SuhongMoon/Explanation_Quality_Eval/assets/annotaation_screenshot.png)
 6. After running the controller 5 minutes ~ 10 minutes for each driving styles, send me (suhong.moon@berkeley.edu) the data you collect. Collected data is hdf5 format and saved in "/_out" subdirectory in cloned directory.
