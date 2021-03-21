@@ -21,6 +21,20 @@ You can find CARLA 0.9.10 in this [link](https://github.com/carla-simulator/carl
     easy_install carla-0.9.10-py3.7-linux-x86_64.egg
     ```
 ## Running the Simulator
+1. Add environment variables and Python paths These are necessary for the system to find CARLA, and add the PythonAPI to the Python path.
+    ```
+    # ${CARLA_ROOT} is the CARLA installation directory
+    # ${SCENARIO_RUNNER} is the ScenarioRunner installation directory
+    # <VERSION> is the correct string for the Python version being used
+    # In a build from source, the .egg files may be in: ${CARLA_ROOT}/PythonAPI/dist/ instead of ${CARLA_ROOT}/PythonAPI
+    
+    export CARLA_ROOT=/path/to/your/carla/installation
+    export SCENARIO_RUNNER_ROOT=/path/to/your/scenario/runner/installation
+    export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla/dist/carla-<VERSION>.egg
+    export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla/agents
+    export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla
+    export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI
+    ```
 1. Run following command to run carla simualtr which locates in ~/carla
     ```
     ./CarlaUE4.sh -quality-level=Epic -world-port=2000 -resx=800 -resy=600 -opengl
@@ -38,9 +52,12 @@ You can find CARLA 0.9.10 in this [link](https://github.com/carla-simulator/carl
     ```
     ./manual_control_image_augmentation.py --style cautious
     ```
-    Then you can find the simulator like below image.
-    [alt text](http://https://github.com/SuhongMoon/Explanation_Quality_Eval/assets/carla_simulator.png)
+    
 4. If you press R after running manual controller, it starts to record your play. 
-5. When you playing with this controller, please explain your behavior by yourself by pressing P. If you press P while running the simulator, the popup window that you can input your explanation and action appears and the simulator pauses until you submit your explanation.
-[alt text](http://https://github.com/SuhongMoon/Explanation_Quality_Eval/assets/annotaation_screenshot.png)
+5. When you playing with this controller, please explain your behavior by yourself by pressing P. If you press P while running the controller, the popup window that you can input your explanation and action appears and the simulator pauses until you submit your explanation.
+
+    ![Screenshot](./assets/annotation_screenshot.png)
+
+    So you must press P when you first start the controller and when you change your behavior.
+
 6. After running the controller 5 minutes ~ 10 minutes for each driving styles, send me (suhong.moon@berkeley.edu) the data you collect. Collected data is hdf5 format and saved in "/_out" subdirectory in cloned directory.
