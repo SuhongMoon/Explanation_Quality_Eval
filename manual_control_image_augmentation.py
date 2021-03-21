@@ -978,8 +978,8 @@ def game_loop(args):
         hud = HUD(args.width, args.height)
         
         ## Setting Map (Town01)
-        world = World(client.load_world(args.map), hud, args)
-        # world = WorldSR(client.get_world(), hud, args) 
+        # world = World(client.load_world(args.map), hud, args)
+        world = WorldSR(client.get_world(), hud, args) 
         controller = KeyboardControl(world, args.autopilot, args.style)
         
         attachment = carla.AttachmentType
@@ -1015,7 +1015,6 @@ def game_loop(args):
                     left_image = image2numpy(left_image)
 
                     current_explanation, current_description = world.get_expl_desc()
-                    print(f"desc+expl {current_description}. {current_explanation}. ")
                     data_saver.record_data(middle_image, right_image, left_image, labels_dict, current_explanation, current_description)
                 
                 else:
