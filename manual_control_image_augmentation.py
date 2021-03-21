@@ -422,30 +422,32 @@ class KeyboardControl(object):
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         if keys[K_UP] or keys[K_w]:
-            max_throttle = 0.7 if self.style == "aggressive" else 0.5
+            max_throttle = 1.0 if self.style == "aggressive" else 0.5
             self._control.throttle = min(self._control.throttle + 0.01*60/10, max_throttle)
         else:
             self._control.throttle = 0.0
 
         if keys[K_DOWN] or keys[K_s]:
-            max_brake = 0.7 if self.style == "aggressive" else 0.5
+            max_brake = 1.0 if self.style == "aggressive" else 0.5
             self._control.brake = min(self._control.brake + 0.2*60/10, max_brake)
         else:
             self._control.brake = 0
 
         steer_increment = 5e-4 * milliseconds
+        throttle_min = 0.4 if self.style == 'aggressive' else 0.2
+
         if keys[K_LEFT] or keys[K_a]:
             if self._steer_cache > 0:
                 self._steer_cache = 0
             else:
-                self._steer_cache -= steer_increment
-            self._control.throttle = min(self._control.throttle, 0.2)
+                self._steer_cache -= steer_increment    
+            self._control.throttle = min(self._control.throttle, throttle_min)
         elif keys[K_RIGHT] or keys[K_d]:
             if self._steer_cache < 0:
                 self._steer_cache = 0
             else:
                 self._steer_cache += steer_increment
-            self._control.throttle = min(self._control.throttle, 0.2)
+            self._control.throttle = min(self._control.throttle, throttle_min)
         else:
             self._steer_cache = 0.0
         self._steer_cache = min(0.7, max(-0.7, self._steer_cache))

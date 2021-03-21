@@ -39,11 +39,14 @@ You can find CARLA 0.9.10 in this [link](https://github.com/carla-simulator/carl
     ```
     ./CarlaUE4.sh -quality-level=Epic -world-port=2000 -resx=800 -resy=600 -opengl
     ```
-2. Run scenario runner in scenario_runner directory in this git repository. If you want to run the scenario of following the leading vehicle, then
+2. Run scenario runner in scenario_runner directory in this git repository. In this project, we will only use Scenarion 02 and Scenarion 05 in this [documents](https://github.com/SuhongMoon/scenario_runner/blob/8ae1fb905c296456e949de42c6978b5014f18538/Docs/list_of_scenarios.md). To run the Scenario 02, 
     ```
-    python scenario_runner/scenario_runner.py --scenario FollowLeadingVehicle_1
+    python scenario_runner/scenario_runner.py --scenario FollowLeadingVehicleWithObstacle_1
     ```
-    Please refer the [documents](https://github.com/SuhongMoon/scenario_runner/blob/8ae1fb905c296456e949de42c6978b5014f18538/Docs/list_of_scenarios.md) for more detailed explanation about scenarios.
+    and to run the Scenario 05,
+    ```
+    python scenario_runner/scenario_runner.py --scenario OtherLeadingVehicle_4
+    ```
 3. Run following command to run manual controller when driving car aggressively:
     ```
     ./manual_control_image_augmentation.py --style aggressive 
