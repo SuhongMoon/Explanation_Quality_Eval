@@ -2,4 +2,5 @@ future
 numpy
 pygame
 networkx
-opencv-python     
+opencv-python
+h5py    
