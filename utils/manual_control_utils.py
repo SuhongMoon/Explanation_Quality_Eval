@@ -19,11 +19,16 @@ Use ARROWS or WASD keys for control.
     A/D          : steer left/right
     Q            : toggle reverse
     Space        : hand-brake
+    P            : toggle autopilot
+    M            : toggle manual transmission
+    ,/.          : gear up/down
+    CTRL + W     : toggle constant velocity mode at 60 km/h
+
 
     R            : toggle recording images to disk
 
     CTRL + R     : toggle recording of simulation (replacing any previous)
-    CTRL + P     : pause the simulator and input explanation and description
+    CTRL + P     : start replaying last recorded simulation
     CTRL + +     : increments the start time of the replay by 1 second (+SHIFT = 10 seconds)
     CTRL + -     : decrements the start time of the replay by 1 second (+SHIFT = 10 seconds)
 
@@ -31,7 +36,6 @@ Use ARROWS or WASD keys for control.
     H/?          : toggle help
     ESC          : quit
 """
-
 
 from __future__ import print_function
 
@@ -44,9 +48,6 @@ from __future__ import print_function
 import glob
 import os
 import sys
-import h5py
-import time
-
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -65,12 +66,6 @@ except IndexError:
 import carla
 
 from carla import ColorConverter as cc
-from utils.data_saver_utils import HDF5Saver
-from utils.sensor_utils import CarlaSyncMode, generate_rgb_cam, get_labels, image2numpy
-from utils.expl_utils import ExplDialog
-
-from tkinter import Tk, Text, TOP, BOTH, X, N, LEFT, RIGHT, BOTTOM, Message, W
-from tkinter.ttk import Frame, Label, Entry, Button
 
 import argparse
 import collections
@@ -81,14 +76,12 @@ import random
 import re
 import weakref
 
+from carla import ColorConverter as cc
+
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
     from pygame.locals import KMOD_SHIFT
-    from pygame.locals import K_0
-    from pygame.locals import K_9
-    from pygame.locals import K_BACKQUOTE
-    from pygame.locals import K_BACKSPACE
     from pygame.locals import K_COMMA
     from pygame.locals import K_DOWN
     from pygame.locals import K_ESCAPE
@@ -98,24 +91,15 @@ try:
     from pygame.locals import K_RIGHT
     from pygame.locals import K_SLASH
     from pygame.locals import K_SPACE
-    from pygame.locals import K_TAB
     from pygame.locals import K_UP
     from pygame.locals import K_a
-    from pygame.locals import K_c
-    from pygame.locals import K_g
     from pygame.locals import K_d
     from pygame.locals import K_h
     from pygame.locals import K_m
-    from pygame.locals import K_n
-    from pygame.locals import K_p
     from pygame.locals import K_q
     from pygame.locals import K_r
     from pygame.locals import K_s
     from pygame.locals import K_w
-    from pygame.locals import K_l
-    from pygame.locals import K_i
-    from pygame.locals import K_z
-    from pygame.locals import K_x
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
 except ImportError:
@@ -143,9 +127,20 @@ def get_actor_display_name(actor, truncate=250):
     name = ' '.join(actor.type_id.replace('_', '.').title().split('.')[1:])
     return (name[:truncate - 1] + u'\u2026') if len(name) > truncate else name
 
+def convert_image(image):
+    image.convert(cc.Raw)
+    array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+    array = np.reshape(array, (image.height, image.width, 4))
+    array = array[:, :, :3]
+    array = array[:, :, ::-1]
+
+    return array 
+
 # ==============================================================================
 # -- World ---------------------------------------------------------------------
 # ==============================================================================
+
+
 class World(object):
     def __init__(self, carla_world, hud, args):
         self.world = carla_world
@@ -180,16 +175,6 @@ class World(object):
         self.recording_start = 0
         self.constant_velocity_enabled = False
 
-        self.current_explanation = ''
-        self.current_description = ''
-
-    def get_expl_desc(self):
-        return self.current_explanation, self.current_description
-
-    def set_expl_desc(self, expl, desc):
-        self.current_explanation = expl
-        self.current_description = desc
-        
     def restart(self):
         self.player_max_speed = 1.589
         self.player_max_speed_fast = 3.713
@@ -271,79 +256,33 @@ class World(object):
             self.toggle_radar()
         sensors = [
             self.camera_manager.sensor,
+            self.camera_manager.data_cam_sensors,
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
             self.imu_sensor.sensor]
         for sensor in sensors:
             if sensor is not None:
-                sensor.stop()
-                sensor.destroy()
+                if isinstance(sensor, dict):
+                    for data_cam_sensor in sensor.values():
+                        data_cam_sensor.stop()
+                        data_cam_sensor.destroy()
+                else:
+                    sensor.stop()
+                    sensor.destroy()
         if self.player is not None:
             self.player.destroy()
-
-class WorldSR(World):
-
-    restarted = False
-
-    def restart(self):
-
-        if self.restarted:
-            return
-        self.restarted = True
-
-        self.player_max_speed = 1.589
-        self.player_max_speed_fast = 3.713
-
-        # Keep same camera config if the camera manager exists.
-        cam_index = self.camera_manager.index if self.camera_manager is not None else 0
-        cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
-
-        # Get the ego vehicle
-        while self.player is None:
-            print("Waiting for the ego vehicle...")
-            time.sleep(1)
-            possible_vehicles = self.world.get_actors().filter('vehicle.*')
-            for vehicle in possible_vehicles:
-                if vehicle.attributes['role_name'] == "hero":
-                    print("Ego vehicle found")
-                    self.player = vehicle
-                    break
-        
-        self.player_name = self.player.type_id
-
-        # Set up the sensors.
-        self.collision_sensor = CollisionSensor(self.player, self.hud)
-        self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
-        self.gnss_sensor = GnssSensor(self.player)
-        self.imu_sensor = IMUSensor(self.player)
-        self.camera_manager = CameraManager(self.player, self.hud, self._gamma)
-        self.camera_manager.transform_index = cam_pos_index
-        self.camera_manager.set_sensor(cam_index, notify=False)
-        actor_type = get_actor_display_name(self.player)
-        self.hud.notification(actor_type)
-
-    def tick(self, clock):
-        if len(self.world.get_actors().filter(self.player_name)) < 1:
-            return False
-
-        self.hud.tick(self, clock)
-        return True
 
 
 # ==============================================================================
 # -- KeyboardControl -----------------------------------------------------------
 # ==============================================================================
 
-import math
-throttle_delta_function = lambda x: 3*math.exp(-3*x)
-
 
 class KeyboardControl(object):
     """Class that handles keyboard input."""
-    def __init__(self, world, start_in_autopilot, style):
+    def __init__(self, world, start_in_autopilot):
         self._autopilot_enabled = start_in_autopilot
-        self.style = style
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             self._lights = carla.VehicleLightState.NONE
@@ -371,6 +310,15 @@ class KeyboardControl(object):
                     world.hud.toggle_info()
                 elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
                     world.hud.help.toggle()
+                elif event.key == K_w and (pygame.key.get_mods() & KMOD_CTRL):
+                    if world.constant_velocity_enabled:
+                        world.player.disable_constant_velocity()
+                        world.constant_velocity_enabled = False
+                        world.hud.notification("Disabled Constant Velocity Mode")
+                    else:
+                        world.player.enable_constant_velocity(carla.Vector3D(17, 0, 0))
+                        world.constant_velocity_enabled = True
+                        world.hud.notification("Enabled Constant Velocity Mode at 60 km/h")
                 elif event.key == K_r and not (pygame.key.get_mods() & KMOD_CTRL):
                     world.camera_manager.toggle_recording()
                 elif event.key == K_r and (pygame.key.get_mods() & KMOD_CTRL):
@@ -382,24 +330,32 @@ class KeyboardControl(object):
                         client.start_recorder("manual_recording.rec")
                         world.recording_enabled = True
                         world.hud.notification("Recorder is ON")
-                elif event.key == K_p:
-                    # print(200)
-                    root = Tk()
-                    root.geometry("700x600")
-                    app = ExplDialog(world.world)
-                    root.mainloop()
-
-                    try:
-                        root.destroy()
-                    except:
-                        pass
-                    
-                    world.set_expl_desc(*app.get_expl_desc())
-
+                
+                elif event.key == K_MINUS and (pygame.key.get_mods() & KMOD_CTRL):
+                    if pygame.key.get_mods() & KMOD_SHIFT:
+                        world.recording_start -= 10
+                    else:
+                        world.recording_start -= 1
+                    world.hud.notification("Recording start time is %d" % (world.recording_start))
+                elif event.key == K_EQUALS and (pygame.key.get_mods() & KMOD_CTRL):
+                    if pygame.key.get_mods() & KMOD_SHIFT:
+                        world.recording_start += 10
+                    else:
+                        world.recording_start += 1
+                    world.hud.notification("Recording start time is %d" % (world.recording_start))
                 if isinstance(self._control, carla.VehicleControl):
                     if event.key == K_q:
                         self._control.gear = 1 if self._control.reverse else -1
-
+                    elif event.key == K_m:
+                        self._control.manual_gear_shift = not self._control.manual_gear_shift
+                        self._control.gear = world.player.get_control().gear
+                        world.hud.notification('%s Transmission' %
+                                               ('Manual' if self._control.manual_gear_shift else 'Automatic'))
+                    elif self._control.manual_gear_shift and event.key == K_COMMA:
+                        self._control.gear = max(-1, self._control.gear - 1)
+                    elif self._control.manual_gear_shift and event.key == K_PERIOD:
+                        self._control.gear = self._control.gear + 1
+                    
         if not self._autopilot_enabled:
             if isinstance(self._control, carla.VehicleControl):
                 self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
@@ -422,14 +378,12 @@ class KeyboardControl(object):
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         if keys[K_UP] or keys[K_w]:
-            max_throttle = 0.7 if self.style == "aggressive" else 0.5
-            self._control.throttle = min(self._control.throttle + 0.01*60/10, max_throttle)
+            self._control.throttle = min(self._control.throttle + 0.01*6, 1)
         else:
             self._control.throttle = 0.0
 
         if keys[K_DOWN] or keys[K_s]:
-            max_brake = 0.7 if self.style == "aggressive" else 0.5
-            self._control.brake = min(self._control.brake + 0.2*60/10, max_brake)
+            self._control.brake = min(self._control.brake + 0.2, 1)
         else:
             self._control.brake = 0
 
@@ -439,13 +393,11 @@ class KeyboardControl(object):
                 self._steer_cache = 0
             else:
                 self._steer_cache -= steer_increment
-            self._control.throttle = min(self._control.throttle, 0.2)
         elif keys[K_RIGHT] or keys[K_d]:
             if self._steer_cache < 0:
                 self._steer_cache = 0
             else:
                 self._steer_cache += steer_increment
-            self._control.throttle = min(self._control.throttle, 0.2)
         else:
             self._steer_cache = 0.0
         self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
@@ -559,7 +511,7 @@ class HUD(object):
             self._info_text += ['Nearby vehicles:']
             distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
             vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
-            for d, vehicle in sorted(vehicles):
+            for d, vehicle in sorted(vehicles, key=lambda vehicles: vehicles[0]):
                 if d > 200.0:
                     break
                 vehicle_type = get_actor_display_name(vehicle, truncate=22)
@@ -881,14 +833,19 @@ class CameraManager(object):
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
+        bound_y = 0.5 + self._parent.bounding_box.extent.y
         Attachment = carla.AttachmentType
         self._camera_transforms = [
-            (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.SpringArm)
-        ]
+            (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.SpringArm),
+            (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.SpringArm),
+            (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.SpringArm),
+            (carla.Transform(carla.Location(x=-1, y=-bound_y, z=0.5)), Attachment.Rigid)]
         self.transform_index = 1
         self.sensors = [
-            ['sensor.camera.rgb', cc.Raw, 'Camera RGB', {}],
+            ['sensor.camera.rgb', cc.Raw, 'Camera RGB', {}]
         ]
+        
         world = self._parent.get_world()
         bp_library = world.get_blueprint_library()
         for item in self.sensors:
@@ -896,9 +853,96 @@ class CameraManager(object):
             if item[0].startswith('sensor.camera'):
                 bp.set_attribute('image_size_x', str(hud.dim[0]))
                 bp.set_attribute('image_size_y', str(hud.dim[1]))
+                if bp.has_attribute('gamma'):
+                    bp.set_attribute('gamma', str(gamma_correction))
+                for attr_name, attr_value in item[3].items():
+                    bp.set_attribute(attr_name, attr_value)
+            elif item[0].startswith('sensor.lidar'):
+                self.lidar_range = 50
+
+                for attr_name, attr_value in item[3].items():
+                    bp.set_attribute(attr_name, attr_value)
+                    if attr_name == 'range':
+                        self.lidar_range = float(attr_value)
+
 
             item.append(bp)
+        
+        self.data_cam_sensors = dict(
+            rgb=None,
+            rgb_right=None,
+            rgb_left=None
+        )
+
+        self.data_cam_images = dict(
+            rgb=None,
+            rgb_right=None,
+            rgb_left=None
+        )
+        self._set_data_sensors()
         self.index = None
+
+    def _set_data_sensors(self):
+        data_sensors = [
+            {
+                'type': 'sensor.camera.rgb',
+                'x': 1.3, 'y': 0.0, 'z': 1.3,
+                'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
+                'width': 640, 'height': 480, 'fov': 90,
+                'id': 'rgb'
+                },
+            {
+                'type': 'sensor.camera.rgb',
+                'x': 1.2, 'y': -0.25, 'z': 1.3,
+                'roll': 0.0, 'pitch': 0.0, 'yaw': -45.0,
+                'width': 640, 'height': 480, 'fov': 90,
+                'id': 'rgb_left'
+                },
+            {
+                'type': 'sensor.camera.rgb',
+                'x': 1.2, 'y': 0.25, 'z': 1.3,
+                'roll': 0.0, 'pitch': 0.0, 'yaw': 45.0,
+                'width': 640, 'height': 480, 'fov': 90,
+                'id': 'rgb_right'
+                }
+        ]
+        world = self._parent.get_world()
+        bp_library = world.get_blueprint_library()
+
+        for sensor_spec in data_sensors:
+            # These are the sensors spawned on the carla world
+            bp = bp_library.find(str(sensor_spec['type']))
+            if sensor_spec['type'].startswith('sensor.camera'):
+                bp.set_attribute('image_size_x', str(sensor_spec['width']))
+                bp.set_attribute('image_size_y', str(sensor_spec['height']))
+                bp.set_attribute('fov', str(sensor_spec['fov']))
+                sensor_location = carla.Location(x=sensor_spec['x'], y=sensor_spec['y'],
+                                                z=sensor_spec['z'])
+                sensor_rotation = carla.Rotation(pitch=sensor_spec['pitch'],
+                                                roll=sensor_spec['roll'],
+                                                yaw=sensor_spec['yaw'])
+            sensor_transform = carla.Transform(sensor_location, sensor_rotation)
+            sensor = self._parent.get_world().spawn_actor(bp, sensor_transform, attach_to=self._parent)
+            self.data_cam_sensors[sensor_spec['id']] = sensor
+        weak_self = weakref.ref(self)
+        self.data_cam_sensors['rgb'].listen(lambda image: CameraManager._center_cam_callback(weak_self, image))
+        self.data_cam_sensors['rgb_left'].listen(lambda image: CameraManager._left_cam_callback(weak_self, image))
+        self.data_cam_sensors['rgb_right'].listen(lambda image: CameraManager._right_cam_callback(weak_self, image))
+
+    @staticmethod
+    def _center_cam_callback(weak_self, image):
+        self = weak_self()
+        self.data_cam_images['rgb'] = convert_image(image)
+
+    @staticmethod
+    def _left_cam_callback(weak_self, image):
+        self = weak_self()
+        self.data_cam_images['rgb_left'] = convert_image(image)    
+
+    @staticmethod
+    def _right_cam_callback(weak_self, image):
+        self = weak_self()
+        self.data_cam_images['rgb_right'] = convert_image(image)      
 
     def toggle_camera(self):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
@@ -941,219 +985,35 @@ class CameraManager(object):
         self = weak_self()
         if not self:
             return
-        image.convert(self.sensors[self.index][1])
-        array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
-        array = np.reshape(array, (image.height, image.width, 4))
-        array = array[:, :, :3]
-        array = array[:, :, ::-1]
-        self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+        if self.sensors[self.index][0].startswith('sensor.lidar'):
+            points = np.frombuffer(image.raw_data, dtype=np.dtype('f4'))
+            points = np.reshape(points, (int(points.shape[0] / 4), 4))
+            lidar_data = np.array(points[:, :2])
+            lidar_data *= min(self.hud.dim) / (2.0 * self.lidar_range)
+            lidar_data += (0.5 * self.hud.dim[0], 0.5 * self.hud.dim[1])
+            lidar_data = np.fabs(lidar_data)  # pylint: disable=E1111
+            lidar_data = lidar_data.astype(np.int32)
+            lidar_data = np.reshape(lidar_data, (-1, 2))
+            lidar_img_size = (self.hud.dim[0], self.hud.dim[1], 3)
+            lidar_img = np.zeros((lidar_img_size), dtype=np.uint8)
+            lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
+            self.surface = pygame.surfarray.make_surface(lidar_img)
+        elif self.sensors[self.index][0].startswith('sensor.camera.dvs'):
+            # Example of converting the raw_data from a carla.DVSEventArray
+            # sensor into a NumPy array and using it as an image
+            dvs_events = np.frombuffer(image.raw_data, dtype=np.dtype([
+                ('x', np.uint16), ('y', np.uint16), ('t', np.int64), ('pol', np.bool)]))
+            dvs_img = np.zeros((image.height, image.width, 3), dtype=np.uint8)
+            # Blue is positive, red is negative
+            dvs_img[dvs_events[:]['y'], dvs_events[:]['x'], dvs_events[:]['pol'] * 2] = 255
+            self.surface = pygame.surfarray.make_surface(dvs_img.swapaxes(0, 1))
+        else:
+            image.convert(self.sensors[self.index][1])
+            array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+            array = np.reshape(array, (image.height, image.width, 4))
+            array = array[:, :, :3]
+            array = array[:, :, ::-1]
+            self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
         if self.recording:
-            # image.save_to_disk('_out/%08d' % image.frame)
-            pass
+            image.save_to_disk('_out/%08d' % image.frame)
 
-
-# ==============================================================================
-# -- game_loop() ---------------------------------------------------------------
-# ==============================================================================
-
-
-
-def game_loop(args):
-    pygame.init()
-    pygame.font.init()
-
-    world = None
-    record_cameras = []
-
-    data_saver = None#HDF5Saver(args.cam_width, args.cam_height, args.save_name)
-
-    try:
-        client = carla.Client(args.host, args.port)
-        client.set_timeout(2.0)
-
-        display = pygame.display.set_mode(
-            (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
-
-        hud = HUD(args.width, args.height)
-        
-        ## Setting Map (Town01)
-        # world = World(client.load_world(args.map), hud, args)
-        world = WorldSR(client.get_world(), hud, args) 
-        controller = KeyboardControl(world, args.autopilot, args.style)
-        
-        attachment = carla.AttachmentType
-        
-        record_cam_transforms = [
-            (carla.Transform(carla.Location(x=1.3, y=0.0, z=1.3)), attachment.Rigid), # Center Camera
-            (carla.Transform(carla.Location(x=1.2, y=-0.25, z=1.3), carla.Rotation(yaw=-45)), attachment.Rigid), # Left Camera
-            (carla.Transform(carla.Location(x=1.2, y=0.25, z=1.3), carla.Rotation(yaw=45)), attachment.Rigid), # Right Camera
-        ]
-
-        ## Generating recording cameras
-        for transform in record_cam_transforms:
-            record_cameras.append(generate_rgb_cam(world.world, transform, world.player, args.cam_height, args.cam_width))
-
-        clock = pygame.time.Clock()
-        with CarlaSyncMode(world.world, *record_cameras, fps=10) as sync_mode:
-            while True:
-                clock.tick_busy_loop(60)
-                if controller.parse_events(client, world, clock):
-                    return
-                world.tick(clock)
-                world.render(display)
-                pygame.display.flip()
-                snapshot, middle_image, right_image, left_image = sync_mode.tick(timeout=2.0)
-
-                if world.camera_manager.recording:
-                    if data_saver is None:
-                        data_saver = HDF5Saver(args.cam_width, args.cam_height, args.save_name)
-    
-                    labels_dict = get_labels(world)
-                    middle_image = image2numpy(middle_image)
-                    right_image = image2numpy(right_image)
-                    left_image = image2numpy(left_image)
-
-                    current_explanation, current_description = world.get_expl_desc()
-                    data_saver.record_data(middle_image, right_image, left_image, labels_dict, current_explanation, current_description)
-                
-                else:
-                    if data_saver is not None:
-                        data_saver.close_HDF5()
-                    data_saver = None
-
-    finally:
-        
-        if (world and world.recording_enabled):
-            client.stop_recorder()
-
-        if world is not None:
-            world.destroy()
-        
-        if len(record_cameras) > 0:
-            for camera in record_cameras:
-                camera.destroy()
-        
-        if data_saver is not None:
-            data_saver.close_HDF5()
-        pygame.quit()
-
-
-# ==============================================================================
-# -- main() --------------------------------------------------------------------
-# ==============================================================================
-
-
-def main():
-    argparser = argparse.ArgumentParser(
-        description='CARLA Manual Control Client')
-    argparser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        dest='debug',
-        help='print debug information')
-    argparser.add_argument(
-        '--host',
-        metavar='H',
-        default='127.0.0.1',
-        help='IP of the host server (default: 127.0.0.1)')
-    argparser.add_argument(
-        '-p', '--port',
-        metavar='P',
-        default=2000,
-        type=int,
-        help='TCP port to listen to (default: 2000)')
-    argparser.add_argument(
-        '-a', '--autopilot',
-        action='store_true',
-        help='enable autopilot')
-    argparser.add_argument(
-        '--res',
-        metavar='WIDTHxHEIGHT',
-        default='1280x720',
-        help='window resolution (default: 1280x720)')
-    argparser.add_argument(
-        '--filter',
-        metavar='PATTERN',
-        default='vehicle.*',
-        help='actor filter (default: "vehicle.*")')
-    argparser.add_argument(
-        '--rolename',
-        metavar='NAME',
-        default='hero',
-        help='actor role name (default: "hero")')
-    argparser.add_argument(
-        '--gamma',
-        default=2.2,
-        type=float,
-        help='Gamma correction of the camera (default: 2.2)')
-    argparser.add_argument(
-        '-m', '--map',
-        default="Town01",
-        help="load the map (Town01, Town02, ..., Town05)"
-    )
-    argparser.add_argument(
-        '-wi', '--cam_width', 
-        default=640, 
-        type=int, 
-        help="recording camera rgb sensor width in pixels"
-    )
-    argparser.add_argument(
-        '-he', '--cam_height', 
-        default=480, 
-        type=int, 
-        help="recording camera rgb sensor width in pixels"
-    )
-    argparser.add_argument(
-        '-ve', '--vehicles', 
-        default=30, 
-        type=int, 
-        help="number of vehicles to spawn in the simulation"
-    )
-    argparser.add_argument(
-        '-wa', '--walkers', 
-        default=30, 
-        type=int, 
-        help="number of walkers to spawn in the simulation"
-    )
-    argparser.add_argument(
-        '--save-name', 
-        default=None, 
-        type=str, 
-        help="Name of h5 file to save the data"
-    )
-    argparser.add_argument(
-        '--style', 
-        default="aggressive", 
-        type=str, 
-        help="Driving style (aggressive, cautious)"
-    )
-
-    args = argparser.parse_args()        
-
-    assert args.style in ["aggressive", "cautious"], "Unknown driving style, \"{}\"".format(args.style)
-
-    if args.save_name is None:
-        args.save_name = args.style
-    else:
-        args.save_name = "{}_{}".format(args.style, args.save_name)
-        
-    args.width, args.height = [int(x) for x in args.res.split('x')]
-
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
-
-    logging.info('listening to server %s:%s', args.host, args.port)
-
-    print(__doc__)
-
-    try:
-        game_loop(args)
-
-    except KeyboardInterrupt:
-        print('\nCancelled by user. Bye!')
-
-
-if __name__ == '__main__':
-
-    main()

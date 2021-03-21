@@ -1,0 +1,4 @@
+[submodule "scenario_runner"]
+	path = scenario_runner
+	url = ../scenario_runner.git
+	branch = 0.9.10
